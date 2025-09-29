@@ -10,6 +10,7 @@ const detectionForm = document.getElementById("detectionForm");
 const toggleDetections = document.getElementById("toggleDetections");
 const toggleExpected = document.getElementById("toggleExpected");
 const toggleLabels = document.getElementById("toggleLabels");
+const toggleIdentified = document.getElementById("toggleIdentified");
 const matchesList = document.getElementById("matchesList");
 const confirmMatch = document.getElementById("confirmMatch");
 const selectedDetectionInput = document.getElementById("selectedDetection");
@@ -41,6 +42,7 @@ const state = {
   showDetections: true,
   showExpected: true,
   showLabels: true,
+  showIdentified: true,
   radialModel: "poly2",
   modelParams: null,
   observation: null,
@@ -63,6 +65,40 @@ async function fetchJSON(url, options = {}) {
     throw new Error(detail.detail || response.statusText);
   }
   return response.json();
+}
+
+function normaliseStarName(name) {
+  if (!name) return "";
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function syncMatchesWithExpected() {
+  if (!state.matches.length || !state.expectedStars.length) {
+    return;
+  }
+  const expectedMap = new Map(
+    state.expectedStars.map((star) => [normaliseStarName(star.name), star])
+  );
+  state.matches.forEach((match) => {
+    const expected = expectedMap.get(normaliseStarName(match.name));
+    if (!expected) {
+      return;
+    }
+    match.x_expected = expected.x;
+    match.y_expected = expected.y;
+    match.alt = expected.alt;
+    match.az = expected.az;
+    if (Object.prototype.hasOwnProperty.call(expected, "ra")) {
+      match.RA = expected.ra;
+    }
+    if (Object.prototype.hasOwnProperty.call(expected, "dec")) {
+      match.DEC = expected.dec;
+    }
+  });
 }
 
 function normalizeModel(apiModel) {
@@ -137,11 +173,20 @@ function drawScene() {
   }
 
   if (state.showDetections) {
-    ctx.lineWidth = 2;
+    const matchedDetections = new Set(
+      state.matches.map((match) => match.detectionIndex)
+    );
     for (let i = 0; i < state.detections.length; i++) {
       const det = state.detections[i];
+      const isMatched = matchedDetections.has(i);
+      if (isMatched && !state.showIdentified) {
+        continue;
+      }
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.strokeStyle = isMatched
+        ? "rgba(135, 206, 250, 0.9)"
+        : "rgba(255, 255, 255, 0.85)";
       ctx.arc(det.x, det.y, 8, 0, Math.PI * 2);
       ctx.stroke();
       if (state.selectedDetection === i) {
@@ -292,6 +337,20 @@ async function updateExpectedStars() {
     });
     state.modelParams = normalizeModel(result.model);
     state.expectedStars = result.stars.map((star) => ({ ...star }));
+    if (state.expectedStars.length) {
+      console.groupCollapsed(
+        `Posiciones esperadas proyectadas (${state.expectedStars.length})`
+      );
+      state.expectedStars.forEach((star) => {
+        console.log(
+          `${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}`
+        );
+      });
+      console.groupEnd();
+    } else {
+      console.info("Proyección sin estrellas esperadas disponibles.");
+    }
+    syncMatchesWithExpected();
     drawScene();
     updateViewerInfo();
     updateModelSummary();
@@ -341,14 +400,21 @@ async function runDetection() {
 }
 
 function gatherObservationFromForm() {
-  const latitude = parseFloat(document.getElementById("latitude").value);
-  const longitude = parseFloat(document.getElementById("longitude").value);
-  const elevation = parseFloat(document.getElementById("elevation").value || "0");
+  const latitudeField = document.getElementById("latitude");
+  const longitudeField = document.getElementById("longitude");
+  const elevationField = document.getElementById("elevation");
+  const latitude = parseFloat(latitudeField.value);
+  const longitude = parseFloat(longitudeField.value);
+  const elevation = parseFloat(elevationField.value || "0");
   const captureTime = document.getElementById("captureTime").value;
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !captureTime) {
     return null;
   }
-  return { latitude, longitude, elevation, captureTime };
+  const roundedLatitude = Number(latitude.toFixed(6));
+  const roundedLongitude = Number(longitude.toFixed(6));
+  latitudeField.value = roundedLatitude.toFixed(6);
+  longitudeField.value = roundedLongitude.toFixed(6);
+  return { latitude: roundedLatitude, longitude: roundedLongitude, elevation, captureTime };
 }
 
 async function fitModel() {
@@ -382,7 +448,21 @@ async function fitModel() {
       body: JSON.stringify(payload),
     });
     state.modelParams = normalizeModel(result.model);
-    state.expectedStars = result.projectedStars;
+    state.expectedStars = result.projectedStars.map((star) => ({ ...star }));
+    if (state.expectedStars.length) {
+      console.groupCollapsed(
+        `Posiciones esperadas proyectadas (${state.expectedStars.length})`
+      );
+      state.expectedStars.forEach((star) => {
+        console.log(
+          `${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}`
+        );
+      });
+      console.groupEnd();
+    } else {
+      console.info("Modelo ajustado sin estrellas esperadas disponibles.");
+    }
+    syncMatchesWithExpected();
     updateModelSummary();
     drawScene();
     updateViewerInfo();
@@ -455,17 +535,37 @@ function addMatch() {
     showToast("Esa detección ya está identificada");
     return;
   }
-  const normalisedName = starName.toLowerCase();
-  if (state.matches.some((match) => match.name.toLowerCase() === normalisedName)) {
+  const normalisedName = normaliseStarName(starName);
+  if (state.matches.some((match) => normaliseStarName(match.name) === normalisedName)) {
     showToast("Esa estrella ya fue asociada");
     return;
   }
   const det = state.detections[state.selectedDetection];
+  const expected = state.expectedStars.find(
+    (star) => normaliseStarName(star.name) === normalisedName
+  );
+  if (!expected) {
+    console.warn(
+      `No se encontró posición esperada para la estrella identificada: ${starName}`
+    );
+  }
   state.matches.push({
     name: starName,
     x: det.x,
     y: det.y,
     detectionIndex: state.selectedDetection,
+    x_expected: expected ? expected.x : null,
+    y_expected: expected ? expected.y : null,
+    alt: expected ? expected.alt : null,
+    az: expected ? expected.az : null,
+    RA:
+      expected && Object.prototype.hasOwnProperty.call(expected, "ra")
+        ? expected.ra
+        : null,
+    DEC:
+      expected && Object.prototype.hasOwnProperty.call(expected, "dec")
+        ? expected.dec
+        : null,
   });
   updateMatchesList();
   fitModel();
@@ -479,6 +579,7 @@ function addMatch() {
 function clearMatches() {
   state.matches = [];
   updateMatchesList();
+  drawScene();
   updateExpectedStars();
   showToast("Identificaciones reiniciadas");
 }
@@ -567,6 +668,11 @@ toggleLabels.addEventListener("change", () => {
   drawScene();
 });
 
+toggleIdentified.addEventListener("change", () => {
+  state.showIdentified = toggleIdentified.checked;
+  drawScene();
+});
+
 detectionForm.addEventListener("submit", (event) => {
   event.preventDefault();
   runDetection();
@@ -595,6 +701,7 @@ window.addEventListener("load", () => {
   fetchRadialModels();
   fetchStarNames();
   state.flipHorizontal = !isNadirCheckbox.checked;
+  state.showIdentified = toggleIdentified.checked;
   clearCanvas();
   updateViewerInfo();
 });

@@ -85,6 +85,8 @@ def visible_stars(
             "alt": alt,
             "az": az,
             "magnitude": magnitude_value,
+            "ra": star.ra_deg,
+            "dec": star.dec_deg,
         })
     visible.sort(key=lambda item: -item["alt"])
     return visible
@@ -117,6 +119,8 @@ def project_stars(
             "alt": star["alt"],
             "az": star["az"],
             "magnitude": star["magnitude"],
+            "ra": star["ra"],
+            "dec": star["dec"],
             "x": float(x),
             "y": float(y),
         })
