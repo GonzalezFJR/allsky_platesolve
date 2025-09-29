@@ -48,6 +48,7 @@ body {
 }
 
 .layout {
+
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -136,7 +137,6 @@ body {
   backdrop-filter: blur(4px);
   z-index: 3;
 }
-
 
 .viewer-controls {
   display: flex;
