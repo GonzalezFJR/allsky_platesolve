@@ -16,6 +16,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, validator
 from PIL import Image
 
+import sys, os
+# include base path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from calibration.model import RADIAL_MODELS, LensModel, default_model_parameters, get_model
 from calibration.observer import create_observer, radec_to_altaz
 from calibration.stars import load_catalog, lookup_star, project_stars
@@ -257,3 +261,7 @@ async def fit_model(payload: FitRequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+import uvicorn
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
