@@ -1,0 +1,9 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.23.0
+numpy>=1.24
+pandas>=1.5
+scipy>=1.10
+astropy>=5.3
+photutils>=1.8
+Pillow>=9.5
+ephem>=4.1.3

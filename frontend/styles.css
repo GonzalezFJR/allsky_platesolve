@@ -48,19 +48,26 @@ body {
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: minmax(420px, 60%) minmax(320px, 40%);
-  gap: 1.5rem;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+
   padding: 1.5rem 2rem 3rem;
 }
 
 .panel {
   background: transparent;
+  width: 100%;
+  max-width: 1100px;
+
 }
 
 .panel.viewer {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 1rem;
 }
 
@@ -68,12 +75,13 @@ body {
   position: relative;
   border: 2px dashed rgba(76, 201, 240, 0.35);
   border-radius: 18px;
-  min-height: 520px;
+  min-height: clamp(320px, 70vw, 720px);
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(15, 20, 30, 0.6);
   overflow: hidden;
+  width: 100%;
 }
 
 .drop-zone.dragover {
@@ -112,6 +120,7 @@ body {
   display: block;
   background: black;
   z-index: 1;
+  max-width: 100%;
 }
 
 .overlay-message {
@@ -131,10 +140,12 @@ body {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 0.5rem 0.75rem;
+  justify-content: center;
+  padding: 0.75rem 1rem;
   background: rgba(15, 22, 34, 0.65);
   border-radius: 12px;
   border: 1px solid var(--border);
+  width: 100%;
 }
 
 .viewer-controls label {
@@ -148,12 +159,25 @@ body {
   min-height: 1.4rem;
   font-size: 0.9rem;
   color: var(--muted);
+  text-align: center;
+  width: 100%;
 }
 
 .panel.controls {
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: 1.5rem;
+}
+
+.controls-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  width: 100%;
+}
+
+.card.span-2 {
+  grid-column: 1 / -1;
 }
 
 .card {
@@ -314,13 +338,9 @@ button:not(:disabled):hover {
   transform: translateX(-50%) translateY(0);
 }
 
-@media (max-width: 1200px) {
-  .layout {
+@media (max-width: 900px) {
+  .controls-grid {
     grid-template-columns: 1fr;
-  }
-
-  .panel.viewer {
-    order: -1;
   }
 }
 
@@ -336,6 +356,6 @@ button:not(:disabled):hover {
   }
 
   .drop-zone {
-    min-height: 360px;
+    min-height: clamp(260px, 85vw, 520px);
   }
 }
