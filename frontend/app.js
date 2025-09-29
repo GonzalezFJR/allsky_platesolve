@@ -515,6 +515,9 @@ function handleFile(file) {
       state.imageHeight = img.height;
       state.modelParams = null;
       state.expectedStars = [];
+
+      dropZone.classList.add("has-image");
+
       noImageOverlay.style.display = "none";
       drawScene();
       updateViewerInfo();

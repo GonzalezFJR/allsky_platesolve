@@ -74,11 +74,17 @@ def visible_stars(
         alt, az = radec_to_altaz(observer, star.ra_deg, star.dec_deg)
         if alt < min_altitude:
             continue
+        magnitude = star.magnitude
+        if magnitude is None or not math.isfinite(magnitude):
+            magnitude_value = None
+        else:
+            magnitude_value = float(magnitude)
+
         visible.append({
             "name": star.name,
             "alt": alt,
             "az": az,
-            "magnitude": star.magnitude,
+            "magnitude": magnitude_value,
         })
     visible.sort(key=lambda item: -item["alt"])
     return visible
@@ -98,7 +104,14 @@ def project_stars(
     stars = visible_stars(latitude, longitude, elevation, capture_time, min_altitude)
     projected = []
     for star in stars:
-        x, y = model.xy_inv(star["alt"], star["az"])
+        try:
+            x, y = model.xy_inv(star["alt"], star["az"])
+        except Exception:
+            continue
+
+        if not (math.isfinite(x) and math.isfinite(y)):
+            continue
+
         projected.append({
             "name": star["name"],
             "alt": star["alt"],
