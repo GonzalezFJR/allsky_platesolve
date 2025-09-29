@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calibración All-Sky</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Calibración de Cámara All-Sky</h1>
+        <p class="subtitle">Sube una imagen, configura tu observación y empieza a identificar estrellas para ajustar el modelo.</p>
+      </div>
+      <div class="header-actions">
+        <button id="downloadParams" class="primary" disabled>Descargar parámetros</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel viewer">
+        <div id="dropZone" class="drop-zone">
+          <input type="file" id="fileInput" accept="image/*" hidden />
+          <div class="drop-message">
+            <strong>Arrastra y suelta</strong> tu imagen all-sky aquí o
+            <button id="browseButton" type="button">explorar</button>
+          </div>
+          <canvas id="skyCanvas" width="800" height="800" aria-label="Imagen all-sky"></canvas>
+          <div id="noImageOverlay" class="overlay-message">Sube una imagen para comenzar</div>
+        </div>
+        <div class="viewer-controls">
+          <label><input type="checkbox" id="toggleDetections" checked /> Mostrar detecciones</label>
+          <label><input type="checkbox" id="toggleExpected" checked /> Mostrar posiciones esperadas</label>
+          <label><input type="checkbox" id="toggleLabels" checked /> Mostrar nombres</label>
+        </div>
+        <div class="viewer-info" id="viewerInfo"></div>
+      </section>
+
+      <section class="panel controls">
+        <div class="controls-grid">
+          <div class="card">
+            <h2>Datos de la captura</h2>
+            <form id="observationForm" class="form-grid">
+              <label>Latitud
+                <input type="number" step="0.0001" id="latitude" required placeholder="Ej. 41.387" />
+              </label>
+              <label>Longitud
+                <input type="number" step="0.0001" id="longitude" required placeholder="Ej. 2.168" />
+              </label>
+              <label>Altitud (m)
+                <input type="number" step="1" id="elevation" value="0" />
+              </label>
+              <label>Fecha y hora (UTC)
+                <input type="datetime-local" id="captureTime" required />
+              </label>
+              <label>Modelo radial
+                <select id="modelType"></select>
+              </label>
+              <label class="checkbox-inline">
+                <input type="checkbox" id="isNadir" checked /> Imagen en vista nadir
+              </label>
+              <button type="submit" class="primary">Actualizar proyección</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>Detección de estrellas</h2>
+            <form id="detectionForm" class="form-grid">
+              <label>FWHM (px)
+                <input type="number" step="0.1" id="fwhm" name="fwhm" value="4" min="1" />
+              </label>
+              <label>Threshold (σ)
+                <input type="number" step="0.1" id="threshold" name="threshold" value="5" min="0.5" />
+              </label>
+              <label>SharpLo
+                <input type="number" step="0.1" id="sharplo" name="sharplo" value="0.2" />
+              </label>
+              <label>SharpHi
+                <input type="number" step="0.1" id="sharphi" name="sharphi" value="1.0" />
+              </label>
+              <label>RoundLo
+                <input type="number" step="0.1" id="roundlo" name="roundlo" value="-1.0" />
+              </label>
+              <label>RoundHi
+                <input type="number" step="0.1" id="roundhi" name="roundhi" value="1.0" />
+              </label>
+              <label>Nº máximo
+                <input type="number" step="1" id="limit" name="limit" value="50" min="1" />
+              </label>
+              <div class="button-row">
+                <button type="submit" class="secondary">Detectar estrellas</button>
+                <button id="resetDetections" type="button">Limpiar</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>Identificación de estrellas</h2>
+            <div id="matchingPanel">
+              <p>Haz clic en una detección (círculo blanco) para seleccionarla y asigna una estrella del catálogo.</p>
+              <div class="match-form">
+                <label>Estrella detectada
+                  <input type="text" id="selectedDetection" disabled placeholder="Ninguna" />
+                </label>
+                <label>Nombre en catálogo
+                  <input list="starNames" id="starNameInput" placeholder="Ej. Vega" />
+                  <datalist id="starNames"></datalist>
+                </label>
+                <div class="button-row">
+                  <button id="confirmMatch" type="button" class="primary" disabled>Identificar estrella</button>
+                  <button id="clearMatches" type="button">Resetear identificaciones</button>
+                </div>
+              </div>
+              <div class="matches-list">
+                <h3>Estrellas identificadas</h3>
+                <ul id="matchesList"></ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="card span-2" id="modelSummary">
+            <h2>Parámetros actuales</h2>
+            <dl>
+              <div><dt>Cénit (xc, yc)</dt><dd id="paramZenith">—</dd></div>
+              <div><dt>Rotación (°)</dt><dd id="paramTheta">—</dd></div>
+              <div><dt>Inclinación (°)</dt><dd id="paramTilt">—</dd></div>
+              <div><dt>Azimut inclinación (°)</dt><dd id="paramTiltAz">—</dd></div>
+              <div><dt>Coeficientes radiales</dt><dd id="paramCoeffs">—</dd></div>
+            </dl>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

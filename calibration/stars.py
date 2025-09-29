@@ -1,87 +1,131 @@
-import pandas as pd
-import requests
-from io import StringIO
-from pathlib import Path
-from typing import List, Dict
+"""Star catalog helpers used by the calibration web service."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 from datetime import datetime
-import os
-from astropy import units as u
-from astropy.coordinates import Angle
+from functools import lru_cache
+from typing import Dict, List
+import math
 
-from app.calibration.model import get_model
-from app.calibration.observer import create_observer, radec_to_altaz
+import pandas as pd
 
-# Definir la ruta base de la aplicación de forma consistente
-BASE_DIR = Path(os.getenv('APP_BASE_PATH', 'app')).resolve()
-STARS_CATALOG_PATH = BASE_DIR / "data" / "named_stars.csv"
+from . import DATA_DIR
+from .model import LensModel
+from .observer import create_observer, radec_to_altaz
 
-def get_named_stars() -> pd.DataFrame:
-    """Lee el catálogo de estrellas brillantes desde el archivo CSV."""
-    try:
-        return pd.read_csv(STARS_CATALOG_PATH)
-    except Exception as e:
-        print(f"Error al obtener el catálogo de estrellas: {e}")
-        return pd.DataFrame()
 
-def get_star_positions(
+CATALOG_PATH = DATA_DIR / "named_stars.csv"
+
+
+@dataclass
+class StarEntry:
+    name: str
+    ra_deg: float
+    dec_deg: float
+    magnitude: float
+
+    @classmethod
+    def from_row(cls, row: pd.Series) -> "StarEntry":
+        mag_value = row["Vmag"]
+        try:
+            magnitude = float(mag_value)
+        except (TypeError, ValueError):
+            magnitude = math.nan
+
+        return cls(
+            name=str(row["IAU Name"]),
+            ra_deg=float(row["RA"]),
+            dec_deg=float(row["Dec"]),
+            magnitude=magnitude,
+        )
+
+
+@lru_cache(maxsize=1)
+def load_catalog() -> List[StarEntry]:
+    df = pd.read_csv(CATALOG_PATH)
+    stars: List[StarEntry] = [StarEntry.from_row(row) for _, row in df.iterrows()]
+    return stars
+
+
+def normalise_name(name: str) -> str:
+    import unicodedata
+
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    return name.strip().lower()
+
+
+@lru_cache(maxsize=1)
+def star_name_lookup() -> Dict[str, StarEntry]:
+    return {normalise_name(star.name): star for star in load_catalog()}
+
+
+def visible_stars(
+    latitude: float,
+    longitude: float,
+    elevation: float,
     capture_time: datetime,
-    device_params: dict
+    min_altitude: float = 0.0,
 ) -> List[Dict]:
-    """
-    Calcula las coordenadas (x, y) de las estrellas del catálogo para una observación dada.
-
-    Args:
-        capture_time: Hora de la captura de la imagen.
-        device_params: Diccionario con 'latitude', 'longitude', 'elevation' y 'calibration_model'.
-
-    Returns:
-        Una lista de diccionarios, cada uno con 'name', 'ra', 'dec', 'x', 'y'.
-    """
-    stars_df = get_named_stars()
-    if stars_df.empty:
-        return []
-
-    # Extraer parámetros
-    latitude = device_params.get('latitude')
-    longitude = device_params.get('longitude')
-    elevation = device_params.get('elevation', 0)
-    calib_model_params = device_params.get('calibration_model')
-    print('Model params: ',calib_model_params)
-
-    if not all([latitude, longitude, calib_model_params]):
-        raise ValueError("Faltan parámetros del dispositivo o del modelo de calibración.")
-
-    # Crear observador y modelo
     observer = create_observer(latitude, longitude, elevation, capture_time)
-    model = get_model(calib_model_params['model_type'], calib_model_params)
-
-    if not model.is_fitted:
-        raise ValueError("El modelo de calibración no está ajustado.")
-
-    projected_stars = []
-    for _, star in stars_df.iterrows():
-        # Convertir RA de horas a grados
-        ra = Angle(star['RA'], unit=u.deg).degree
-        dec = Angle(star['Dec'], unit=u.deg).degree
-
-        # Calcular Alt/Az
-        alt, az = radec_to_altaz(observer, ra, dec)
-
-        # Si la estrella está por debajo del horizonte, no la proyectamos
-        if alt < 0:
+    stars = load_catalog()
+    visible = []
+    for star in stars:
+        alt, az = radec_to_altaz(observer, star.ra_deg, star.dec_deg)
+        if alt < min_altitude:
             continue
+        magnitude = star.magnitude
+        if magnitude is None or not math.isfinite(magnitude):
+            magnitude_value = None
+        else:
+            magnitude_value = float(magnitude)
 
-        # Proyectar a coordenadas de píxel
-        x, y = model.xy_inv(alt, az)
-
-        projected_stars.append({
-            "name": star['IAU Name'],
-            "ra": ra,
-            "dec": dec,
+        visible.append({
+            "name": star.name,
             "alt": alt,
             "az": az,
-            "x": int(x),
-            "y": int(y)
+            "magnitude": magnitude_value,
         })
-    
-    return projected_stars
+    visible.sort(key=lambda item: -item["alt"])
+    return visible
+
+
+def project_stars(
+    model: LensModel,
+    latitude: float,
+    longitude: float,
+    elevation: float,
+    capture_time: datetime,
+    min_altitude: float = 0.0,
+) -> List[Dict]:
+    if not model.is_fitted:
+        raise RuntimeError("El modelo debe estar ajustado para proyectar las estrellas.")
+
+    stars = visible_stars(latitude, longitude, elevation, capture_time, min_altitude)
+    projected = []
+    for star in stars:
+        try:
+            x, y = model.xy_inv(star["alt"], star["az"])
+        except Exception:
+            continue
+
+        if not (math.isfinite(x) and math.isfinite(y)):
+            continue
+
+        projected.append({
+            "name": star["name"],
+            "alt": star["alt"],
+            "az": star["az"],
+            "magnitude": star["magnitude"],
+            "x": float(x),
+            "y": float(y),
+        })
+    return projected
+
+
+def lookup_star(name: str) -> StarEntry:
+    lookup = star_name_lookup()
+    key = normalise_name(name)
+    if key not in lookup:
+        raise KeyError(f"Estrella '{name}' no encontrada en el catálogo")
+    return lookup[key]
