@@ -32,6 +32,7 @@
           <label><input type="checkbox" id="toggleDetections" checked /> Mostrar detecciones</label>
           <label><input type="checkbox" id="toggleExpected" checked /> Mostrar posiciones esperadas</label>
           <label><input type="checkbox" id="toggleLabels" checked /> Mostrar nombres</label>
+          <label><input type="checkbox" id="toggleIdentified" checked /> Mostrar identificadas</label>
         </div>
         <div class="viewer-info" id="viewerInfo"></div>
       </section>
@@ -43,10 +44,10 @@
             <h2>Datos de la captura</h2>
             <form id="observationForm" class="form-grid">
               <label>Latitud
-                <input type="number" step="0.0001" id="latitude" required placeholder="Ej. 41.387" />
+                <input type="number" step="any" id="latitude" required placeholder="Ej. 41.387" />
               </label>
               <label>Longitud
-                <input type="number" step="0.0001" id="longitude" required placeholder="Ej. 2.168" />
+                <input type="number" step="any" id="longitude" required placeholder="Ej. 2.168" />
               </label>
               <label>Altitud (m)
                 <input type="number" step="1" id="elevation" value="0" />
