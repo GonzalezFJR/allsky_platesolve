@@ -1,3 +1,10 @@
+"""Lens calibration models for the all-sky plate solving web application."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Iterable
+
 import numpy as np
 from scipy.optimize import minimize
 
@@ -5,27 +12,36 @@ from scipy.optimize import minimize
 # Cada función devuelve la ALTITUD (en grados) dado un radio r (en píxeles)
 # y sus coeficientes.
 
-def polynomial_distortion(r, coeffs):
-    """Modelo polinómico. alt = 90 - (c1*r + c2*r^2 + ...)"""
-    # polyval evalúa p[0]*x**(n-1) + ... + p[n-1]
-    # Queremos c1*r + c2*r^2 + ..., así que los coeficientes deben estar en orden inverso
-    # y con un cero al principio para el término independiente.
-    # ej: [c1, c2] -> polyval([c2, c1, 0], r)
-    alt = 90.0 - np.polyval(np.concatenate((coeffs[::-1], [0])), r)
-    return alt
 
-def exponential_distortion(r, coeffs):
-    """Modelo exponencial. alt = 90 * exp(-c1*r)"""
-    c1, = coeffs
-    # El coeficiente debe ser positivo para que la altitud disminuya con el radio
-    alt = 90.0 * np.exp(-np.abs(c1) * r)
-    return alt
+def polynomial_distortion(r: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+    """Modelo polinómico tal que alt = 90 - (c1*r + c2*r^2 + ...)."""
+    if coeffs.size == 0:
+        return np.full_like(r, 90.0, dtype=float)
+    poly_coeffs = np.concatenate((coeffs[::-1], [0.0]))
+    return 90.0 - np.polyval(poly_coeffs, r)
 
-RADIAL_MODELS = {
-    'lin' : {'func': polynomial_distortion, 'n_coeffs': 1},
-    'poly2': {'func': polynomial_distortion, 'n_coeffs': 2},
-    'poly3': {'func': polynomial_distortion, 'n_coeffs': 3},
-    'exp1': {'func': exponential_distortion, 'n_coeffs': 1},
+
+def exponential_distortion(r: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+    """Modelo exponencial. alt = 90 * exp(-|c1|*r)."""
+    if coeffs.size == 0:
+        return np.full_like(r, 90.0, dtype=float)
+    c1 = np.abs(coeffs[0])
+    return 90.0 * np.exp(-c1 * r)
+
+
+@dataclass(frozen=True)
+class RadialModelInfo:
+    key: str
+    name: str
+    func: callable
+    n_coeffs: int
+
+
+RADIAL_MODELS: Dict[str, RadialModelInfo] = {
+    "lin": RadialModelInfo("lin", "Lineal", polynomial_distortion, 1),
+    "poly2": RadialModelInfo("poly2", "Polinómico (2º)", polynomial_distortion, 2),
+    "poly3": RadialModelInfo("poly3", "Polinómico (3º)", polynomial_distortion, 3),
+    "exp1": RadialModelInfo("exp1", "Exponencial", exponential_distortion, 1),
 }
 
 # --- Clase Principal del Modelo de Lente ---
@@ -41,13 +57,14 @@ class LensModel:
     3. Distorsión Radial (f(r)): Una función que mapea la distancia radial desde el cénit (r)
        a la altitud (alt).
     """
-    def __init__(self, model_type='poly3'):
+    def __init__(self, model_type: str = "poly3", max_radius_px: float | None = None):
         if model_type not in RADIAL_MODELS:
             raise ValueError(f"Modelo '{model_type}' no soportado. Opciones: {list(RADIAL_MODELS.keys())}")
-        
+
         self.model_type = model_type
-        self.radial_func = RADIAL_MODELS[model_type]['func']
-        self.n_coeffs = RADIAL_MODELS[model_type]['n_coeffs']
+        info = RADIAL_MODELS[model_type]
+        self.radial_func = info.func
+        self.n_coeffs = info.n_coeffs
 
         # Parámetros del modelo (se inicializan en fit)
         self.xc = None
@@ -57,6 +74,7 @@ class LensModel:
         self.tilt_azimuth = 0.0 # Dirección de la inclinación en grados
         self.coeffs = None
         self.is_fitted = False
+        self.max_radius_px = max_radius_px or 1500.0
 
     def load(self, params: dict):
         """Carga los parámetros del modelo desde un diccionario."""
@@ -65,9 +83,11 @@ class LensModel:
         self.theta_deg = params.get('theta_deg')
         self.tilt_angle = params.get('tilt_angle', 0.0)
         self.tilt_azimuth = params.get('tilt_azimuth', 0.0)
-        self.coeffs = np.array(params.get('coeffs', []))
+        coeffs = params.get('coeffs', [])
+        self.coeffs = np.array(coeffs, dtype=float) if coeffs is not None else np.zeros(self.n_coeffs)
+        self.max_radius_px = params.get('max_radius_px', self.max_radius_px)
         # El modelo se considera ajustado si todos los parámetros clave están presentes
-        self.is_fitted = all(p is not None for p in [self.xc, self.yc, self.theta_deg, self.coeffs])
+        self.is_fitted = all(p is not None for p in [self.xc, self.yc, self.theta_deg]) and self.coeffs is not None
 
     def params(self) -> dict:
         """Devuelve los parámetros del modelo en un diccionario."""
@@ -79,7 +99,9 @@ class LensModel:
             'theta_deg': self.theta_deg,
             'tilt_angle': self.tilt_angle,
             'tilt_azimuth': self.tilt_azimuth,
-            'coeffs': self.coeffs.tolist() if self.coeffs is not None else []
+            'coeffs': self.coeffs.tolist() if self.coeffs is not None else [],
+            'model_type': self.model_type,
+            'max_radius_px': self.max_radius_px,
         }
 
     def _tilted_to_true_coords(self, alt_cam, az_cam):
@@ -194,14 +216,15 @@ class LensModel:
 
     def radial_distortion_inv(self, alt):
         """Calcula la distancia radial a partir de la altitud."""
-        # Inversión de la función de distorsión radial
-        # Para modelos polinómicos, se puede usar np.roots para encontrar las raíces
-        # Sin embargo, esto puede ser inestable para polinomios de grado alto.
-        # En su lugar, usamos una búsqueda lineal para encontrar el radio que produce la altitud deseada.
-        r_px = np.linspace(0, 1520, 10000)  # Radio en píxeles
-        alt_pred = self.radial_distortion(r_px)
-        idx = np.argmin(np.abs(alt_pred - alt))
-        return r_px[idx]
+        alt_arr = np.atleast_1d(alt).astype(float)
+        r_grid = np.linspace(0, self.max_radius_px, 5000)
+        alt_grid = self.radial_distortion(r_grid)
+        sort_idx = np.argsort(alt_grid)[::-1]
+        alt_sorted = alt_grid[sort_idx]
+        r_sorted = r_grid[sort_idx]
+        alt_clamped = np.clip(alt_arr, alt_sorted.min(), alt_sorted.max())
+        r_interp = np.interp(alt_clamped, alt_sorted, r_sorted)
+        return r_interp if alt_arr.ndim > 0 else float(r_interp)
 
     def _error_function(self, params, x_px, y_px, alt_true, az_true):
         """Función de coste a minimizar: error angular esférico."""
@@ -229,39 +252,54 @@ class LensModel:
         # Devolvemos la suma de los cuadrados de los errores angulares
         return np.sum(angle_rad**2)
 
-    def fit(self, x_px, y_px, alt_true, az_true, image_width, image_height):
+    def fit(
+        self,
+        x_px: np.ndarray,
+        y_px: np.ndarray,
+        alt_true: np.ndarray,
+        az_true: np.ndarray,
+        image_width: int,
+        image_height: int,
+        initial_params: Iterable[float] | None = None,
+    ):
         """Ajusta los parámetros del modelo a los datos proporcionados."""
-        
-        # Valores iniciales y límites para los parámetros
-        initial_xc = image_width / 2
-        initial_yc = image_height / 2
-        initial_theta = 0.0
 
-        # Estimar un valor inicial para el primer coeficiente (relacionado con la escala)
-        # alt = 90 - c1*r  => c1 = (90 - alt) / r
-        r_px_max = np.max(np.sqrt((x_px - initial_xc)**2 + (y_px - initial_yc)**2))
-        alt_min = np.min(alt_true)
-        initial_c1 = (90 - alt_min) / r_px_max if r_px_max > 0 else 0.1
+        x_px = np.asarray(x_px, dtype=float)
+        y_px = np.asarray(y_px, dtype=float)
+        alt_true = np.asarray(alt_true, dtype=float)
+        az_true = np.asarray(az_true, dtype=float)
 
-        initial_coeffs = [initial_c1] + [0.0] * (self.n_coeffs - 1)
+        if x_px.size < self.n_coeffs + 2:
+            raise ValueError("Se necesitan más pares de estrellas identificadas para ajustar el modelo.")
 
-        initial_tilt_angle = 0.0
-        initial_tilt_azimuth = 0.0
+        self.max_radius_px = max(image_width, image_height) / 2 * np.sqrt(2)
 
-        # Los parámetros a optimizar son [xc, yc, theta_deg, tilt_angle, tilt_azimuth, ...coeffs]
-        initial_params = [initial_xc, initial_yc, initial_theta, initial_tilt_angle, initial_tilt_azimuth] + initial_coeffs
+        # Valores iniciales
+        cx = image_width / 2
+        cy = image_height / 2
+        theta0 = 0.0
+        r_px = np.sqrt((x_px - cx) ** 2 + (y_px - cy) ** 2)
+        r_px_max = max(np.max(r_px), 1.0)
+        alt_min = np.clip(np.min(alt_true), 0.0, 89.5)
+        c1 = (90.0 - alt_min) / r_px_max
+        default_coeffs = [c1] + [0.0] * (self.n_coeffs - 1)
+        tilt_angle0 = 0.0
+        tilt_az0 = 0.0
 
-        # Límites para los parámetros (xc, yc, theta, tilt_angle, tilt_azimuth, coeffs)
+        if initial_params is None:
+            initial_params = [cx, cy, theta0, tilt_angle0, tilt_az0] + default_coeffs
+        else:
+            initial_params = list(initial_params)
+
         bounds = [
-            (image_width / 2 - 20, image_width / 2 + 20), # xc
-            (image_height / 2 - 20, image_height / 2 + 20), # yc
-            (-180, 180), # theta en grados
-            (0, 2),      # tilt_angle en grados (límite de 2º)
-            (0, 360),    # tilt_azimuth en grados
-            (-1000, 1000), # Límite para c1
-        ] + [(-0.1, 0.1)] * (self.n_coeffs - 1)
+            (cx - 50, cx + 50),  # xc restringido a 100x100 alrededor del centro
+            (cy - 50, cy + 50),  # yc
+            (-180, 180),         # theta en grados
+            (0, 10),             # tilt_angle máximo 10º
+            (0, 360),            # tilt_azimuth en grados
+            (0.01, 2.5),         # c1 positivo
+        ] + [(-0.05, 0.05)] * (self.n_coeffs - 1)
 
-        # Realizar la optimización
         result = minimize(
             self._error_function,
             initial_params,
@@ -271,18 +309,12 @@ class LensModel:
         )
 
         if not result.success:
-            print(f"¡Advertencia! La optimización falló: {result.message}")
+            raise RuntimeError(f"La optimización del modelo no convergió: {result.message}")
 
         # Guardar los parámetros óptimos
         self.xc, self.yc, self.theta_deg, self.tilt_angle, self.tilt_azimuth = result.x[:5]
-        self.coeffs = result.x[5:]
+        self.coeffs = np.array(result.x[5:], dtype=float)
         self.is_fitted = True
-        
-        print("Ajuste del modelo completado.")
-        print(f"  - Cénit (xc, yc): ({self.xc:.2f}, {self.yc:.2f}) px")
-        print(f"  - Rotación (theta): {self.theta_deg:.2f}º")
-        print(f"  - Inclinación (ángulo, azimut): {self.tilt_angle:.2f}º, {self.tilt_azimuth:.2f}º")
-        print(f"  - Coeficientes radiales: {np.round(self.coeffs, 5)}")
 
         return result
 
@@ -290,6 +322,29 @@ def get_model(model_type: str, params: dict) -> LensModel:
     """
     Crea una instancia de LensModel, carga sus parámetros y la devuelve.
     """
-    model = LensModel(model_type=model_type)
+    model = LensModel(model_type=model_type, max_radius_px=params.get('max_radius_px'))
     model.load(params)
     return model
+
+
+def default_model_parameters(model_type: str, image_width: int, image_height: int) -> Dict:
+    """Genera parámetros iniciales razonables para un modelo dado."""
+    if model_type not in RADIAL_MODELS:
+        raise ValueError(f"Modelo '{model_type}' no soportado")
+
+    cx = image_width / 2
+    cy = image_height / 2
+    r_edge = min(image_width, image_height) / 2
+    c1 = 90.0 / max(r_edge, 1.0)
+    coeffs = [c1] + [0.0] * (RADIAL_MODELS[model_type].n_coeffs - 1)
+
+    return {
+        "model_type": model_type,
+        "xc": cx,
+        "yc": cy,
+        "theta_deg": 0.0,
+        "tilt_angle": 0.0,
+        "tilt_azimuth": 0.0,
+        "coeffs": coeffs,
+        "max_radius_px": max(image_width, image_height) / 2 * np.sqrt(2),
+    }
