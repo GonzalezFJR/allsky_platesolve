@@ -34,6 +34,22 @@
           <label><input type="checkbox" id="toggleLabels" checked /> Mostrar nombres</label>
           <label><input type="checkbox" id="toggleIdentified" checked /> Mostrar identificadas</label>
         </div>
+        <div class="star-display-controls">
+          <div class="control-group">
+            <label>Tamaño de etiquetas
+              <input type="range" id="labelSize" min="8" max="24" step="1" value="14" />
+              <span id="labelSizeValue">14px</span>
+            </label>
+          </div>
+          <div class="control-group">
+            <label>Máximo de estrellas
+              <input type="number" id="maxStars" min="10" max="500" step="10" value="100" />
+            </label>
+          </div>
+          <div class="control-group">
+            <label><input type="checkbox" id="sortByMagnitude" checked /> Ordenar por magnitud</label>
+          </div>
+        </div>
         <div class="viewer-info" id="viewerInfo"></div>
       </section>
 
@@ -121,14 +137,110 @@
           </div>
 
           <div class="card span-2" id="modelSummary">
-            <h2>Parámetros actuales</h2>
-            <dl>
-              <div><dt>Cénit (xc, yc)</dt><dd id="paramZenith">—</dd></div>
-              <div><dt>Rotación (°)</dt><dd id="paramTheta">—</dd></div>
-              <div><dt>Inclinación (°)</dt><dd id="paramTilt">—</dd></div>
-              <div><dt>Azimut inclinación (°)</dt><dd id="paramTiltAz">—</dd></div>
-              <div><dt>Coeficientes radiales</dt><dd id="paramCoeffs">—</dd></div>
-            </dl>
+            <h2>Parámetros del modelo</h2>
+            <div class="parameter-editor">
+              <div class="parameter-group">
+                <h3>Centro de la imagen (xc, yc)</h3>
+                <div class="parameter-row">
+                  <label>Xc
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="xcMin" placeholder="Min" step="1">
+                      <input type="range" class="parameter-slider" id="xcSlider" min="1470" max="1570" step="1" value="1520">
+                      <input type="number" class="limit-input" id="xcMax" placeholder="Max" step="1">
+                      <span class="slider-value" id="xcValue">1520</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="parameter-row">
+                  <label>Yc
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="ycMin" placeholder="Min" step="1">
+                      <input type="range" class="parameter-slider" id="ycSlider" min="1470" max="1570" step="1" value="1520">
+                      <input type="number" class="limit-input" id="ycMax" placeholder="Max" step="1">
+                      <span class="slider-value" id="ycValue">1520</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="parameter-group">
+                <h3>Rotación del sensor (°)</h3>
+                <div class="parameter-row">
+                  <label>Theta
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="thetaMin" placeholder="Min" step="0.1">
+                      <input type="range" class="parameter-slider" id="thetaSlider" min="-180" max="180" step="0.1" value="0">
+                      <input type="number" class="limit-input" id="thetaMax" placeholder="Max" step="0.1">
+                      <span class="slider-value" id="thetaValue">0.0</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="parameter-group">
+                <h3>Inclinación de la cámara</h3>
+                <div class="parameter-row">
+                  <label>Ángulo de inclinación (°)
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="tiltAngleMin" placeholder="Min" step="0.1">
+                      <input type="range" class="parameter-slider" id="tiltAngleSlider" min="0" max="10" step="0.1" value="0">
+                      <input type="number" class="limit-input" id="tiltAngleMax" placeholder="Max" step="0.1">
+                      <span class="slider-value" id="tiltAngleValue">0.0</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="parameter-row">
+                  <label>Azimut de inclinación (°)
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="tiltAzimuthMin" placeholder="Min" step="0.1">
+                      <input type="range" class="parameter-slider" id="tiltAzimuthSlider" min="0" max="360" step="0.1" value="0">
+                      <input type="number" class="limit-input" id="tiltAzimuthMax" placeholder="Max" step="0.1">
+                      <span class="slider-value" id="tiltAzimuthValue">0.0</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="parameter-group">
+                <h3>Coeficientes radiales</h3>
+                <div class="parameter-row">
+                  <label>Coeficiente A
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="coeffAMin" placeholder="Min" step="0.001">
+                      <input type="range" class="parameter-slider" id="coeffASlider" min="0.01" max="3" step="0.001" value="0.2">
+                      <input type="number" class="limit-input" id="coeffAMax" placeholder="Max" step="0.001">
+                      <span class="slider-value" id="coeffAValue">0.200</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="parameter-row">
+                  <label>Coeficiente B
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="coeffBMin" placeholder="Min" step="0.001">
+                      <input type="range" class="parameter-slider" id="coeffBSlider" min="0.1" max="2" step="0.001" value="0.8">
+                      <input type="number" class="limit-input" id="coeffBMax" placeholder="Max" step="0.001">
+                      <span class="slider-value" id="coeffBValue">0.800</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="parameter-row" id="coeffCRow">
+                  <label>Coeficiente C
+                    <div class="slider-container">
+                      <input type="number" class="limit-input" id="coeffCMin" placeholder="Min" step="0.001">
+                      <input type="range" class="parameter-slider" id="coeffCSlider" min="0.5" max="2" step="0.001" value="1.0">
+                      <input type="number" class="limit-input" id="coeffCMax" placeholder="Max" step="0.001">
+                      <span class="slider-value" id="coeffCValue">1.000</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div class="parameter-actions">
+                <button id="updateParameters" class="primary">Actualizar proyección</button>
+                <button id="refitParameters" class="primary">Reajustar</button>
+                <button id="resetParameters" class="secondary">Restaurar valores</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>

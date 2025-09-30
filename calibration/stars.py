@@ -66,6 +66,8 @@ def visible_stars(
     elevation: float,
     capture_time: datetime,
     min_altitude: float = 0.0,
+    max_stars: int = None,
+    sort_by_magnitude: bool = True,
 ) -> List[Dict]:
     observer = create_observer(latitude, longitude, elevation, capture_time)
     stars = load_catalog()
@@ -88,7 +90,18 @@ def visible_stars(
             "ra": star.ra_deg,
             "dec": star.dec_deg,
         })
-    visible.sort(key=lambda item: -item["alt"])
+    
+    # Sort by magnitude (brightest first) or by altitude
+    if sort_by_magnitude:
+        # Sort by magnitude (lower values = brighter stars), then by altitude
+        visible.sort(key=lambda item: (item["magnitude"] if item["magnitude"] is not None else 99, -item["alt"]))
+    else:
+        visible.sort(key=lambda item: -item["alt"])
+    
+    # Limit number of stars if specified
+    if max_stars is not None and max_stars > 0:
+        visible = visible[:max_stars]
+    
     return visible
 
 
@@ -99,19 +112,39 @@ def project_stars(
     elevation: float,
     capture_time: datetime,
     min_altitude: float = 0.0,
+    image_width: int = None,
+    image_height: int = None,
+    max_stars: int = None,
+    sort_by_magnitude: bool = True,
 ) -> List[Dict]:
     if not model.is_fitted:
         raise RuntimeError("El modelo debe estar ajustado para proyectar las estrellas.")
 
-    stars = visible_stars(latitude, longitude, elevation, capture_time, min_altitude)
+    stars = visible_stars(latitude, longitude, elevation, capture_time, min_altitude, max_stars, sort_by_magnitude)
     projected = []
+    
+    # Obtener dimensiones de imagen desde el modelo si no se proporcionan
+    if image_width is None or image_height is None:
+        # Usar max_radius_px como estimación de las dimensiones
+        max_dim = int(model.max_radius_px * 2)
+        image_width = image_width or max_dim
+        image_height = image_height or max_dim
+    
     for star in stars:
         try:
             x, y = model.xy_inv(star["alt"], star["az"])
         except Exception:
             continue
 
+        # Verificar que las coordenadas son finitas
         if not (math.isfinite(x) and math.isfinite(y)):
+            continue
+            
+        # Verificar que las coordenadas están dentro de los límites de la imagen
+        # Permitir un pequeño margen fuera de la imagen para estrellas en el borde
+        margin = 50  # píxeles
+        if (x < -margin or x > image_width + margin or 
+            y < -margin or y > image_height + margin):
             continue
 
         projected.append({

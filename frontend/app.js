@@ -23,11 +23,68 @@ const toast = document.getElementById("toast");
 const modelSelect = document.getElementById("modelType");
 const isNadirCheckbox = document.getElementById("isNadir");
 
-const paramZenith = document.getElementById("paramZenith");
-const paramTheta = document.getElementById("paramTheta");
-const paramTilt = document.getElementById("paramTilt");
-const paramTiltAz = document.getElementById("paramTiltAz");
-const paramCoeffs = document.getElementById("paramCoeffs");
+// Star display controls
+const labelSizeSlider = document.getElementById("labelSize");
+const labelSizeValue = document.getElementById("labelSizeValue");
+const maxStarsInput = document.getElementById("maxStars");
+const sortByMagnitudeCheckbox = document.getElementById("sortByMagnitude");
+
+// Parameter editor elements
+const updateParametersButton = document.getElementById("updateParameters");
+const refitParametersButton = document.getElementById("refitParameters");
+const resetParametersButton = document.getElementById("resetParameters");
+
+// Parameter sliders and inputs
+const parameterElements = {
+  xc: {
+    slider: document.getElementById("xcSlider"),
+    value: document.getElementById("xcValue"),
+    min: document.getElementById("xcMin"),
+    max: document.getElementById("xcMax")
+  },
+  yc: {
+    slider: document.getElementById("ycSlider"),
+    value: document.getElementById("ycValue"),
+    min: document.getElementById("ycMin"),
+    max: document.getElementById("ycMax")
+  },
+  theta: {
+    slider: document.getElementById("thetaSlider"),
+    value: document.getElementById("thetaValue"),
+    min: document.getElementById("thetaMin"),
+    max: document.getElementById("thetaMax")
+  },
+  tiltAngle: {
+    slider: document.getElementById("tiltAngleSlider"),
+    value: document.getElementById("tiltAngleValue"),
+    min: document.getElementById("tiltAngleMin"),
+    max: document.getElementById("tiltAngleMax")
+  },
+  tiltAzimuth: {
+    slider: document.getElementById("tiltAzimuthSlider"),
+    value: document.getElementById("tiltAzimuthValue"),
+    min: document.getElementById("tiltAzimuthMin"),
+    max: document.getElementById("tiltAzimuthMax")
+  },
+  coeffA: {
+    slider: document.getElementById("coeffASlider"),
+    value: document.getElementById("coeffAValue"),
+    min: document.getElementById("coeffAMin"),
+    max: document.getElementById("coeffAMax")
+  },
+  coeffB: {
+    slider: document.getElementById("coeffBSlider"),
+    value: document.getElementById("coeffBValue"),
+    min: document.getElementById("coeffBMin"),
+    max: document.getElementById("coeffBMax")
+  },
+  coeffC: {
+    slider: document.getElementById("coeffCSlider"),
+    value: document.getElementById("coeffCValue"),
+    min: document.getElementById("coeffCMin"),
+    max: document.getElementById("coeffCMax")
+  }
+};
 
 const state = {
   imageElement: null,
@@ -44,6 +101,10 @@ const state = {
   showLabels: true,
   showIdentified: true,
   radialModel: "poly2",
+  radialModels: [],
+  labelSize: 14,
+  maxStars: 100,
+  sortByMagnitude: true,
   modelParams: null,
   observation: null,
   starNames: [],
@@ -103,35 +164,66 @@ function syncMatchesWithExpected() {
 
 function normalizeModel(apiModel) {
   return {
-    modelType: apiModel.model_type,
-    xc: apiModel.xc,
-    yc: apiModel.yc,
-    theta: apiModel.theta_deg,
-    tiltAngle: apiModel.tilt_angle,
-    tiltAzimuth: apiModel.tilt_azimuth,
-    coeffs: apiModel.coeffs,
-    maxRadiusPx: apiModel.max_radius_px,
+    modelType: apiModel.modelType || apiModel.model_type || 'poly2',
+    xc: apiModel.xc ?? 1520,
+    yc: apiModel.yc ?? 1520,
+    theta: apiModel.theta ?? apiModel.theta_deg ?? 0.0,
+    tiltAngle: apiModel.tiltAngle ?? apiModel.tilt_angle ?? 0.0,
+    tiltAzimuth: apiModel.tiltAzimuth ?? apiModel.tilt_azimuth ?? 0.0,
+    coeffs: apiModel.coeffs || [0.2, 0.8],
+    maxRadiusPx: apiModel.maxRadiusPx ?? apiModel.max_radius_px ?? 2149.6,
+    normFactor: apiModel.normFactor ?? apiModel.norm_factor ?? 1520,
+    R: apiModel.R ?? 1520,
   };
 }
 
-function updateModelSummary() {
+function updateParameterEditor() {
   if (!state.modelParams) {
-    paramZenith.textContent = "—";
-    paramTheta.textContent = "—";
-    paramTilt.textContent = "—";
-    paramTiltAz.textContent = "—";
-    paramCoeffs.textContent = "—";
     downloadButton.disabled = true;
     return;
   }
 
   const mp = state.modelParams;
-  paramZenith.textContent = `${mp.xc.toFixed(2)}, ${mp.yc.toFixed(2)}`;
-  paramTheta.textContent = `${mp.theta.toFixed(2)}`;
-  paramTilt.textContent = `${mp.tiltAngle.toFixed(2)}`;
-  paramTiltAz.textContent = `${mp.tiltAzimuth.toFixed(2)}`;
-  paramCoeffs.textContent = mp.coeffs.map((c) => c.toFixed(5)).join(", ");
+  
+  // Update slider values and displays
+  updateSliderValue('xc', mp.xc, 0);
+  updateSliderValue('yc', mp.yc, 0);
+  updateSliderValue('theta', mp.theta, 1);
+  updateSliderValue('tiltAngle', mp.tiltAngle, 1);
+  updateSliderValue('tiltAzimuth', mp.tiltAzimuth, 1);
+  updateSliderValue('coeffA', mp.coeffs[0] || 0.2, 3);
+  updateSliderValue('coeffB', mp.coeffs[1] || 0.8, 3);
+  
+  // Handle coefficient C visibility based on model type
+  const coeffCRow = document.getElementById('coeffCRow');
+  const selectedModel = state.radialModels.find(m => m.key === state.radialModel);
+  const hasThreeCoeffs = selectedModel && selectedModel.coefficients >= 3;
+  
+  coeffCRow.style.display = hasThreeCoeffs ? 'block' : 'none';
+  if (hasThreeCoeffs) {
+    updateSliderValue('coeffC', mp.coeffs[2] || 1.0, 3);
+  }
+  
   downloadButton.disabled = false;
+}
+
+function updateSliderValue(paramName, value, decimals) {
+  const elements = parameterElements[paramName];
+  if (!elements) return;
+  
+  elements.slider.value = value;
+  elements.value.textContent = value.toFixed(decimals);
+  
+  // Update slider bounds if limit inputs have values
+  const minVal = parseFloat(elements.min.value);
+  const maxVal = parseFloat(elements.max.value);
+  
+  if (!isNaN(minVal)) {
+    elements.slider.min = minVal;
+  }
+  if (!isNaN(maxVal)) {
+    elements.slider.max = maxVal;
+  }
 }
 
 function clearCanvas() {
@@ -166,7 +258,7 @@ function drawScene() {
       ctx.stroke();
       if (state.showLabels) {
         ctx.fillStyle = "rgba(64, 255, 162, 0.85)";
-        ctx.font = "14px 'Inter', sans-serif";
+        ctx.font = `${state.labelSize}px 'Inter', sans-serif`;
         ctx.fillText(star.name, star.x + 12, star.y + 4);
       }
     }
@@ -257,6 +349,7 @@ function updateMatchesList() {
 async function fetchRadialModels() {
   try {
     const models = await fetchJSON("/api/radial-models");
+    state.radialModels = models;
     const current = state.radialModel;
     modelSelect.innerHTML = "";
     models.forEach((model) => {
@@ -299,7 +392,7 @@ async function initializeModel() {
       body: JSON.stringify(payload),
     });
     state.modelParams = normalizeModel(params);
-    updateModelSummary();
+    updateParameterEditor();
   } catch (error) {
     showToast(`No se pudo inicializar el modelo: ${error.message}`);
   }
@@ -321,15 +414,19 @@ async function updateExpectedStars() {
         modelType: state.modelParams.modelType,
         xc: state.modelParams.xc,
         yc: state.modelParams.yc,
-        theta: state.modelParams.theta,
-        tiltAngle: state.modelParams.tiltAngle,
-        tiltAzimuth: state.modelParams.tiltAzimuth,
+        theta: state.modelParams.theta, // a.k.a. theta_deg
+        tiltAngle: state.modelParams.tiltAngle, // a.k.a. tilt_angle
+        tiltAzimuth: state.modelParams.tiltAzimuth, // a.k.a. tilt_azimuth
         coeffs: state.modelParams.coeffs,
-        maxRadiusPx: state.modelParams.maxRadiusPx,
+        maxRadiusPx: state.modelParams.maxRadiusPx, // a.k.a. max_radius_px
+        normFactor: state.modelParams.normFactor, // a.k.a. norm_factor
+        R: state.modelParams.R,
       },
       imageWidth: state.imageWidth,
       imageHeight: state.imageHeight,
       minAltitude: 0,
+      maxStars: state.maxStars,
+      sortByMagnitude: state.sortByMagnitude,
     };
     const result = await fetchJSON("/api/projected-stars", {
       method: "POST",
@@ -337,23 +434,28 @@ async function updateExpectedStars() {
     });
     state.modelParams = normalizeModel(result.model);
     state.expectedStars = result.stars.map((star) => ({ ...star }));
-    if (state.expectedStars.length) {
-      console.groupCollapsed(
-        `Posiciones esperadas proyectadas (${state.expectedStars.length})`
-      );
-      state.expectedStars.forEach((star) => {
+    
+    // Solo mostrar las 5 estrellas específicas del script
+    const targetStars = ['deneb', 'altair', 'vega', 'antares', 'mizar'];
+    const filteredStars = state.expectedStars.filter(star => 
+      targetStars.some(target => star.name.toLowerCase().includes(target.toLowerCase()))
+    );
+    
+    if (filteredStars.length) {
+      console.groupCollapsed(`Estrellas principales (${filteredStars.length})`);
+      filteredStars.forEach((star) => {
         console.log(
-          `${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}`
+          `🌟 ${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}, alt=${star.alt.toFixed(1)}°, az=${star.az.toFixed(1)}°`
         );
       });
       console.groupEnd();
     } else {
-      console.info("Proyección sin estrellas esperadas disponibles.");
+      console.info("No se encontraron las estrellas principales en la proyección.");
     }
     syncMatchesWithExpected();
     drawScene();
     updateViewerInfo();
-    updateModelSummary();
+    updateParameterEditor();
   } catch (error) {
     showToast(`No se pudo proyectar estrellas: ${error.message}`);
   }
@@ -418,7 +520,13 @@ function gatherObservationFromForm() {
 }
 
 async function fitModel() {
-  if (!state.matches.length) {
+  const selectedModel = state.radialModels.find(m => m.key === state.radialModel);
+  const nCoeffs = selectedModel ? selectedModel.coefficients : 2; // Default to 2 if not found
+  const requiredStars = nCoeffs + 2;
+
+  if (state.matches.length < requiredStars) {
+    const remaining = requiredStars - state.matches.length;
+    showToast(`Añade ${remaining} estrella${remaining > 1 ? 's' : ''} más para poder ajustar el modelo`);
     return;
   }
   if (!state.observation) {
@@ -449,21 +557,26 @@ async function fitModel() {
     });
     state.modelParams = normalizeModel(result.model);
     state.expectedStars = result.projectedStars.map((star) => ({ ...star }));
-    if (state.expectedStars.length) {
-      console.groupCollapsed(
-        `Posiciones esperadas proyectadas (${state.expectedStars.length})`
-      );
-      state.expectedStars.forEach((star) => {
+    
+    // Solo mostrar las 5 estrellas específicas del script
+    const targetStars = ['deneb', 'altair', 'vega', 'antares', 'mizar'];
+    const filteredStars = state.expectedStars.filter(star => 
+      targetStars.some(target => star.name.toLowerCase().includes(target.toLowerCase()))
+    );
+    
+    if (filteredStars.length) {
+      console.groupCollapsed(`Estrellas principales (${filteredStars.length})`);
+      filteredStars.forEach((star) => {
         console.log(
-          `${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}`
+          `🌟 ${star.name}: x=${star.x.toFixed(2)}, y=${star.y.toFixed(2)}, alt=${star.alt.toFixed(1)}°, az=${star.az.toFixed(1)}°`
         );
       });
       console.groupEnd();
     } else {
-      console.info("Modelo ajustado sin estrellas esperadas disponibles.");
+      console.info("No se encontraron las estrellas principales en la proyección.");
     }
     syncMatchesWithExpected();
-    updateModelSummary();
+    updateParameterEditor();
     drawScene();
     updateViewerInfo();
     showToast("Modelo ajustado con éxito", "success");
@@ -587,7 +700,7 @@ function clearMatches() {
 function handleModelChange() {
   state.radialModel = modelSelect.value;
   state.modelParams = null;
-  updateModelSummary();
+  updateParameterEditor();
   initializeModel().then(() => updateExpectedStars());
   resetDetections();
   showToast("Modelo radial actualizado. Ajusta de nuevo si es necesario.");
@@ -601,6 +714,180 @@ function handleOrientationChange() {
   resetDetections();
   updateExpectedStars();
   showToast("Orientación actualizada. Ejecuta de nuevo la detección.");
+}
+
+function setupStarDisplayEventListeners() {
+  // Label size slider
+  labelSizeSlider.addEventListener('input', (e) => {
+    state.labelSize = parseInt(e.target.value);
+    labelSizeValue.textContent = `${state.labelSize}px`;
+    drawScene();
+  });
+  
+  // Max stars input
+  maxStarsInput.addEventListener('change', (e) => {
+    state.maxStars = parseInt(e.target.value) || 100;
+    updateExpectedStars();
+  });
+  
+  // Sort by magnitude checkbox
+  sortByMagnitudeCheckbox.addEventListener('change', (e) => {
+    state.sortByMagnitude = e.target.checked;
+    updateExpectedStars();
+  });
+}
+
+function setupParameterEventListeners() {
+  // Add event listeners for all parameter sliders
+  Object.entries(parameterElements).forEach(([paramName, elements]) => {
+    // Slider input event
+    elements.slider.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      const decimals = paramName.startsWith('coeff') ? 3 : (paramName === 'xc' || paramName === 'yc' ? 0 : 1);
+      elements.value.textContent = value.toFixed(decimals);
+    });
+    
+    // Limit input change events
+    elements.min.addEventListener('change', (e) => {
+      const minVal = parseFloat(e.target.value);
+      if (!isNaN(minVal)) {
+        elements.slider.min = minVal;
+        if (parseFloat(elements.slider.value) < minVal) {
+          elements.slider.value = minVal;
+          const decimals = paramName.startsWith('coeff') ? 3 : (paramName === 'xc' || paramName === 'yc' ? 0 : 1);
+          elements.value.textContent = minVal.toFixed(decimals);
+        }
+      }
+    });
+    
+    elements.max.addEventListener('change', (e) => {
+      const maxVal = parseFloat(e.target.value);
+      if (!isNaN(maxVal)) {
+        elements.slider.max = maxVal;
+        if (parseFloat(elements.slider.value) > maxVal) {
+          elements.slider.value = maxVal;
+          const decimals = paramName.startsWith('coeff') ? 3 : (paramName === 'xc' || paramName === 'yc' ? 0 : 1);
+          elements.value.textContent = maxVal.toFixed(decimals);
+        }
+      }
+    });
+  });
+}
+
+function getParametersFromSliders() {
+  const selectedModel = state.radialModels.find(m => m.key === state.radialModel);
+  const hasThreeCoeffs = selectedModel && selectedModel.coefficients >= 3;
+  
+  const coeffs = [
+    parseFloat(parameterElements.coeffA.slider.value),
+    parseFloat(parameterElements.coeffB.slider.value)
+  ];
+  
+  if (hasThreeCoeffs) {
+    coeffs.push(parseFloat(parameterElements.coeffC.slider.value));
+  }
+  
+  return {
+    modelType: state.radialModel,
+    xc: parseFloat(parameterElements.xc.slider.value),
+    yc: parseFloat(parameterElements.yc.slider.value),
+    theta: parseFloat(parameterElements.theta.slider.value),
+    tiltAngle: parseFloat(parameterElements.tiltAngle.slider.value),
+    tiltAzimuth: parseFloat(parameterElements.tiltAzimuth.slider.value),
+    coeffs: coeffs,
+    maxRadiusPx: state.modelParams?.maxRadiusPx ?? 2149.6,
+    normFactor: state.modelParams?.normFactor ?? 1520,
+    R: state.modelParams?.R ?? 1520
+  };
+}
+
+async function updateParametersFromSliders() {
+  if (!state.modelParams || !state.observation) {
+    showToast("Completa primero los datos de observación");
+    return;
+  }
+  
+  try {
+    // Update model parameters from slider values
+    state.modelParams = getParametersFromSliders();
+    
+    // Recalculate expected star positions
+    await updateExpectedStars();
+    
+    showToast("Parámetros actualizados", "success");
+  } catch (error) {
+    showToast(`Error actualizando parámetros: ${error.message}`);
+  }
+}
+
+function resetParametersToDefaults() {
+  if (!state.modelParams) {
+    showToast("No hay parámetros para restaurar");
+    return;
+  }
+  
+  // Reset to initial model values
+  initializeModel().then(() => {
+    updateExpectedStars();
+    showToast("Parámetros restaurados", "success");
+  });
+}
+
+function getParameterBounds() {
+  const bounds = {};
+  
+  Object.entries(parameterElements).forEach(([paramName, elements]) => {
+    const minVal = parseFloat(elements.min.value);
+    const maxVal = parseFloat(elements.max.value);
+    
+    if (!isNaN(minVal) && !isNaN(maxVal)) {
+      bounds[paramName] = [minVal, maxVal];
+    }
+  });
+  
+  return bounds;
+}
+
+async function refitWithCustomBounds() {
+  if (!state.matches || state.matches.length === 0) {
+    showToast("Necesitas identificar al menos una estrella para reajustar");
+    return;
+  }
+  
+  if (!state.observation) {
+    showToast("Completa primero los datos de observación");
+    return;
+  }
+  
+  try {
+    const bounds = getParameterBounds();
+    
+    const payload = {
+      observation: state.observation,
+      matches: state.matches.map(match => ({
+        name: match.name,
+        x: match.x,
+        y: match.y
+      })),
+      modelType: state.radialModel,
+      imageWidth: state.imageWidth,
+      imageHeight: state.imageHeight,
+      customBounds: bounds
+    };
+    
+    const result = await fetchJSON("/api/fit-model", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    
+    state.modelParams = normalizeModel(result.model);
+    updateParameterEditor();
+    await updateExpectedStars();
+    
+    showToast("Modelo reajustado con límites personalizados", "success");
+  } catch (error) {
+    showToast(`Error en el reajuste: ${error.message}`);
+  }
 }
 
 function handleFile(file) {
@@ -622,7 +909,7 @@ function handleFile(file) {
       noImageOverlay.style.display = "none";
       drawScene();
       updateViewerInfo();
-      updateModelSummary();
+      updateParameterEditor();
       resetDetections();
       initializeModel().then(() => updateExpectedStars());
     };
@@ -697,9 +984,16 @@ modelSelect.addEventListener("change", handleModelChange);
 isNadirCheckbox.addEventListener("change", handleOrientationChange);
 downloadButton.addEventListener("click", downloadParameters);
 
+// Parameter editor event listeners
+updateParametersButton.addEventListener("click", updateParametersFromSliders);
+refitParametersButton.addEventListener("click", refitWithCustomBounds);
+resetParametersButton.addEventListener("click", resetParametersToDefaults);
+
 window.addEventListener("load", () => {
   fetchRadialModels();
   fetchStarNames();
+  setupParameterEventListeners();
+  setupStarDisplayEventListeners();
   state.flipHorizontal = !isNadirCheckbox.checked;
   state.showIdentified = toggleIdentified.checked;
   clearCanvas();

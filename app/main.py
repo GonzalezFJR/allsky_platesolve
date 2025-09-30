@@ -57,6 +57,8 @@ class ModelParameters(BaseModel):
     tilt_azimuth: float = Field(alias="tiltAzimuth")
     coeffs: List[float]
     max_radius_px: Optional[float] = Field(default=None, alias="maxRadiusPx")
+    norm_factor: Optional[float] = Field(default=None, alias="normFactor")
+    R: Optional[float] = Field(default=None)
 
     @validator("model_type")
     def validate_model(cls, value: str) -> str:
@@ -76,6 +78,11 @@ class ModelParameters(BaseModel):
         }
         if self.max_radius_px is not None:
             params["max_radius_px"] = self.max_radius_px
+        if self.norm_factor is not None:
+            params["norm_factor"] = self.norm_factor
+        if self.R is not None:
+            params["R"] = self.R
+        
         return get_model(self.model_type, params)
 
     @classmethod
@@ -90,6 +97,8 @@ class ModelParameters(BaseModel):
             tiltAzimuth=params["tilt_azimuth"],
             coeffs=params["coeffs"],
             maxRadiusPx=params.get("max_radius_px"),
+            normFactor=params.get("norm_factor"),
+            R=params.get("R"),
         )
 
 
@@ -105,6 +114,8 @@ class ProjectRequest(BaseModel):
     image_width: int = Field(alias="imageWidth")
     image_height: int = Field(alias="imageHeight")
     min_altitude: float = Field(default=0.0, alias="minAltitude")
+    max_stars: int = Field(default=100, alias="maxStars")
+    sort_by_magnitude: bool = Field(default=True, alias="sortByMagnitude")
 
 
 class DetectionRequest(BaseModel):
@@ -131,6 +142,7 @@ class FitRequest(BaseModel):
     model_type: str = Field(alias="modelType", default="poly2")
     image_width: int = Field(alias="imageWidth")
     image_height: int = Field(alias="imageHeight")
+    custom_bounds: dict = Field(default={}, alias="customBounds")
 
 
 def decode_image(image_data: str) -> np.ndarray:
@@ -173,25 +185,39 @@ async def initial_model(payload: InitialModelRequest):
 
 
 @app.post("/api/projected-stars")
-async def projected_stars(payload: ProjectRequest):
-    model = payload.model.to_model()
+async def projected_stars(request: ProjectRequest):
     try:
-        if not model.is_fitted:
-            raise HTTPException(status_code=400, detail="El modelo no está inicializado")
+        # Crear modelo desde parámetros
+        model = request.model.to_model()
+        
+        # Crear observador
+        observer = create_observer(
+            request.observation.latitude,
+            request.observation.longitude,
+            request.observation.elevation,
+            request.observation.capture_time,
+        )
+        
+        # Proyectar estrellas
         stars = project_stars(
             model,
-            payload.observation.latitude,
-            payload.observation.longitude,
-            payload.observation.elevation,
-            payload.observation.capture_time,
-            payload.min_altitude,
+            observer.lat,
+            observer.lon,
+            observer.elevation,
+            observer.date,
+            request.min_altitude,
+            request.image_width,
+            request.image_height,
+            request.max_stars,
+            request.sort_by_magnitude,
         )
+        
         return {
             "stars": stars,
-            "model": model.params(),
+            "model": ModelParameters.from_model(model).dict(by_alias=True),
         }
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/detect-stars")
@@ -244,13 +270,16 @@ async def fit_model(payload: FitRequest):
             altitudes.append(alt)
             azimuths.append(az)
 
-        model.fit(np.array(x_px), np.array(y_px), np.array(altitudes), np.array(azimuths), payload.image_width, payload.image_height)
+        model.fit(np.array(x_px), np.array(y_px), np.array(altitudes), np.array(azimuths), payload.image_width, payload.image_height, custom_bounds=payload.custom_bounds)
         stars = project_stars(
             model,
             obs.latitude,
             obs.longitude,
             obs.elevation,
             obs.capture_time,
+            0.0,  # min_altitude
+            payload.image_width,
+            payload.image_height,
         )
 
         return {
